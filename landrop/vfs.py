@@ -20,11 +20,13 @@ logger = logging.getLogger("landrop.vfs")
 class RemoteStreamReader:
     """A seekable file-like stream wrapping an HTTP endpoint for WsgiDAV and VLC."""
 
-    def __init__(self, raw_url: str, filesize: int):
-        self.url = raw_url
+    def __init__(self, candidate_urls: List[str], rel_path: str, filesize: int):
+        self.candidate_urls = candidate_urls if isinstance(candidate_urls, list) else [candidate_urls]
+        self.rel_path = rel_path
         self.filesize = filesize
         self.position = 0
         self._resp = None
+        self._active_base_url = self.candidate_urls[0] if self.candidate_urls else ""
 
     def _ensure_stream(self, start_pos: int = 0):
         if self._resp is not None:
@@ -36,16 +38,30 @@ class RemoteStreamReader:
                 pass
             self._resp = None
 
-        req = urllib.request.Request(self.url, headers={"User-Agent": "LanDrop-VFS"})
-        if start_pos > 0:
-            req.add_header("Range", f"bytes={start_pos}-")
+        encoded_path = urllib.parse.quote(self.rel_path)
+        urls_to_try = []
+        if self._active_base_url:
+            urls_to_try.append(self._active_base_url)
+        for u in self.candidate_urls:
+            if u and u not in urls_to_try:
+                urls_to_try.append(u)
 
-        try:
-            self._resp = urllib.request.urlopen(req, timeout=30)
-            self.position = start_pos
-        except Exception as e:
-            logger.error("Failed to open remote stream at %s: %s", self.url, e)
-            self._resp = None
+        for base_url in urls_to_try:
+            raw_url = f"{base_url.rstrip('/')}/__landrop__/api/raw{encoded_path}"
+            req = urllib.request.Request(raw_url, headers={"User-Agent": "LanDrop-VFS"})
+            if start_pos > 0:
+                req.add_header("Range", f"bytes={start_pos}-")
+
+            try:
+                resp = urllib.request.urlopen(req, timeout=5)
+                self._resp = resp
+                self.position = start_pos
+                self._active_base_url = base_url
+                return
+            except Exception as e:
+                logger.debug("Failed to open remote stream at %s: %s", raw_url, e)
+
+        self._resp = None
 
     def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
         if whence == os.SEEK_SET:
@@ -78,7 +94,7 @@ class RemoteStreamReader:
             self.position += len(chunk)
             return chunk
         except Exception as e:
-            logger.error("Error reading from remote stream %s: %s", self.url, e)
+            logger.error("Error reading from remote stream at %s: %s", self._active_base_url, e)
             return b""
 
     def close(self):
@@ -125,10 +141,8 @@ class RemoteVirtualFileResource(DAVNonCollection):
 
     def get_content(self):
         """Stream file content directly from the remote peer holder using a seekable stream."""
-        holder_url = self.provider.resolve_holder_url(self.entry)
-        encoded_path = urllib.parse.quote(self.entry.path)
-        raw_url = f"{holder_url.rstrip('/')}/__landrop__/api/raw{encoded_path}"
-        return RemoteStreamReader(raw_url, self.entry.size)
+        candidate_urls = self.provider.resolve_holder_urls(self.entry)
+        return RemoteStreamReader(candidate_urls, self.entry.path, self.entry.size)
 
     def begin_write(self, *, content_type=None):
         """Allow local client to replace remote file with a new local copy."""
@@ -318,13 +332,38 @@ class VirtualStorageProvider(FilesystemProvider):
         self.on_file_changed = on_file_changed
         self.get_peers_func = get_peers_func
 
-    def resolve_holder_url(self, entry: MappingEntry) -> str:
-        """Resolve the live reachable URL for the peer hosting the file."""
+    def resolve_holder_urls(self, entry: MappingEntry) -> List[str]:
+        """Resolve ordered reachable candidate URLs for the peer hosting the file."""
+        candidates = []
+        # 1. Match active discovered peers by node_id or device_name
         if self.get_peers_func:
             for peer in self.get_peers_func():
-                if peer.node_id == entry.holder_node_id and getattr(peer, "webdav_url", ""):
-                    return peer.webdav_url
-        return entry.holder_url
+                url = getattr(peer, "webdav_url", "")
+                if not url:
+                    continue
+                if peer.node_id == entry.holder_node_id or (peer.device_name and peer.device_name == entry.holder_name):
+                    if url not in candidates:
+                        candidates.append(url)
+
+        # 2. Add entry's recorded holder_url
+        if entry.holder_url:
+            clean = entry.holder_url.rstrip("/") + "/"
+            if clean not in candidates:
+                candidates.append(clean)
+
+        # 3. Add any other discovered live peers as fallback
+        if self.get_peers_func:
+            for peer in self.get_peers_func():
+                url = getattr(peer, "webdav_url", "")
+                if url and url not in candidates:
+                    candidates.append(url)
+
+        return candidates
+
+    def resolve_holder_url(self, entry: MappingEntry) -> str:
+        """Resolve the primary live reachable URL for the peer hosting the file."""
+        urls = self.resolve_holder_urls(entry)
+        return urls[0] if urls else entry.holder_url
 
     def set_quota(self, quota_bytes: int) -> None:
         self.quota_bytes = quota_bytes

@@ -186,42 +186,48 @@ class LanDropAppUI:
         self.progress_quota = ttk.Progressbar(q_row2, orient="horizontal", mode="determinate")
         self.progress_quota.pack(fill=tk.X, expand=True)
 
-        # Virtual Files Catalog
-        catalog_frame = ttk.LabelFrame(parent, text="Shared Virtual Files (Distributed across all connected PCs)", padding="10")
-        catalog_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
+        # Physical Storage Pool Card
+        pool_frame = ttk.LabelFrame(parent, text="Local Physical Storage Pool", padding="10")
+        pool_frame.pack(fill=tk.X, pady=(0, 8))
 
-        cat_top = ttk.Frame(catalog_frame)
-        cat_top.pack(fill=tk.X, pady=(0, 6))
+        p_row = ttk.Frame(pool_frame)
+        p_row.pack(fill=tk.X, pady=2)
 
-        ttk.Label(cat_top, text="Files placed into Z: are indexed below and accessible to all peers:", font=("Segoe UI", 8)).pack(side=tk.LEFT)
-        ttk.Button(cat_top, text="Refresh", command=self.refresh_virtual_files).pack(side=tk.RIGHT)
+        ttk.Label(p_row, text="Storage Folder:", width=14).pack(side=tk.LEFT)
+        self.lbl_pool_path = ttk.Label(p_row, text=self.vfs_provider.local_storage_dir, font=("Segoe UI", 8), foreground="#334155")
+        self.lbl_pool_path.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
 
-        cols = ("name", "size", "holder", "network", "modified")
-        self.vfs_tree = ttk.Treeview(catalog_frame, columns=cols, show="headings", height=6, selectmode="browse")
-        self.vfs_tree.heading("name", text="Virtual File Path")
-        self.vfs_tree.heading("size", text="Size")
-        self.vfs_tree.heading("holder", text="Physical Storage Location")
-        self.vfs_tree.heading("network", text="Access")
-        self.vfs_tree.heading("modified", text="Last Modified")
+        ttk.Button(p_row, text="Open Local Folder", command=self._open_physical_pool).pack(side=tk.RIGHT)
 
-        self.vfs_tree.column("name", width=220)
-        self.vfs_tree.column("size", width=80)
-        self.vfs_tree.column("holder", width=160)
-        self.vfs_tree.column("network", width=80)
-        self.vfs_tree.column("modified", width=120)
+        # LanDrop Shared Drive Experience Card
+        info_frame = ttk.LabelFrame(parent, text="LanDrop Shared Drive", padding="12")
+        info_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
-        scrollbar = ttk.Scrollbar(catalog_frame, orient=tk.VERTICAL, command=self.vfs_tree.yview)
-        self.vfs_tree.configure(yscrollcommand=scrollbar.set)
+        ttk.Label(
+            info_frame,
+            text="✨ How LanDrop Works:",
+            font=("Segoe UI", 9, "bold")
+        ).pack(anchor="w", pady=(0, 6))
 
-        self.vfs_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        info_text = (
+            "• Your LanDrop drive is mounted directly to Windows File Explorer.\n\n"
+            "• Drag & Drop: Drag files directly into the drive in Explorer to share them with peers.\n\n"
+            "• Remote Access: Files placed by other PCs appear right inside your drive.\n\n"
+            "• Direct Streaming: Double-click to open or stream files directly without manual downloads.\n\n"
+            "• Distributed & Encrypted: Peer discovery automatically connects devices across LAN and Tailscale mesh."
+        )
+        ttk.Label(
+            info_frame,
+            text=info_text,
+            font=("Segoe UI", 8),
+            foreground="#475569",
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(0, 10))
 
-        cat_actions = ttk.Frame(parent)
-        cat_actions.pack(fill=tk.X, pady=(4, 0))
-
-        ttk.Button(cat_actions, text="Open in Explorer / Stream", command=self._open_selected_vfs_file).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(cat_actions, text="Collect / Download to Local", style="Accent.TButton", command=self._collect_selected_file).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(cat_actions, text="Open Physical Storage Folder", command=self._open_physical_pool).pack(side=tk.RIGHT)
+        btn_row = ttk.Frame(info_frame)
+        btn_row.pack(fill=tk.X)
+        ttk.Button(btn_row, text="Open LanDrop Drive in Explorer", style="Accent.TButton", command=self._open_virtual_drive).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="Rescan Network Peers", command=self._rescan_peers).pack(side=tk.LEFT)
 
     def _build_peers_tab(self, parent: ttk.Frame) -> None:
         top_bar = ttk.Frame(parent)
@@ -412,7 +418,7 @@ class LanDropAppUI:
             open_path_or_url(path)
 
     def refresh_virtual_files(self) -> None:
-        """Reload and refresh the virtual storage files catalog table."""
+        """Reload and refresh virtual storage files and quota."""
         # Scan local storage for any direct file additions
         self.mapping_table.scan_local_storage(
             storage_dir=self.vfs_provider.local_storage_dir,
@@ -421,98 +427,21 @@ class LanDropAppUI:
             my_url=self.vfs_provider.get_my_url(),
         )
 
-        entries = self.mapping_table.get_all_active_entries()
-        self._virtual_files = entries
-
-        # Clear and repopulate table
-        for item_id in self.vfs_tree.get_children():
-            self.vfs_tree.delete(item_id)
-
-        import datetime
-        for e in entries:
-            mtime_str = datetime.datetime.fromtimestamp(e.mtime).strftime("%Y-%m-%d %H:%M")
-            holder_str = f"This PC (Local)" if e.is_local else f"{e.holder_name} (Remote)"
-            net_str = "Local Disk" if e.is_local else ("Tailscale" if "100." in e.holder_url else "LAN")
-            self.vfs_tree.insert(
-                "", tk.END,
-                values=(e.path, format_bytes(e.size), holder_str, net_str, mtime_str)
-            )
-
         # Update quota usage bar
         total_quota = self.vfs_provider.quota_bytes
         total_used = self.mapping_table.get_total_used_bytes()
         pct = min(100.0, (total_used / total_quota) * 100.0) if total_quota > 0 else 0
-        self.progress_quota["value"] = pct
-        self.lbl_quota_usage.configure(
-            text=f"Used: {format_bytes(total_used)} / Total Quota: {format_bytes(total_quota)} ({pct:.1f}%)"
-        )
+        if hasattr(self, "progress_quota"):
+            self.progress_quota["value"] = pct
+        if hasattr(self, "lbl_quota_usage"):
+            self.lbl_quota_usage.configure(
+                text=f"Used: {format_bytes(total_used)} / Total Quota: {format_bytes(total_quota)} ({pct:.1f}%)"
+            )
 
         # Check mount status
-        letter = self.var_drive_letter.get().rstrip(":") + ":"
-        self._update_mount_display(is_drive_mounted(letter), letter)
-
-    def _open_selected_vfs_file(self) -> None:
-        sel = self.vfs_tree.selection()
-        if not sel:
-            messagebox.showinfo("Select File", "Please select a file from the catalog first.")
-            return
-        item_data = self.vfs_tree.item(sel[0])
-        file_path = item_data["values"][0]
-
-        # If drive is mounted, open in Z:
-        letter = self.var_drive_letter.get().rstrip(":") + ":"
-        if is_drive_mounted(letter):
-            full = f"{letter}\\{file_path.lstrip('/')}".replace("/", "\\")
-            open_path_or_url(full)
-        else:
-            url = f"http://127.0.0.1:{self.server.port}{file_path}"
-            open_path_or_url(url)
-
-    def _collect_selected_file(self) -> None:
-        sel = self.vfs_tree.selection()
-        if not sel:
-            messagebox.showinfo("Select File", "Please select a file to collect.")
-            return
-        item_data = self.vfs_tree.item(sel[0])
-        rel_path = item_data["values"][0]
-
-        entry = self.mapping_table.get_entry(rel_path)
-        if not entry:
-            return
-
-        dest_dir = filedialog.askdirectory(title="Select Destination Folder to Collect File")
-        if not dest_dir:
-            return
-
-        dest_file = os.path.join(dest_dir, os.path.basename(rel_path))
-
-        if entry.is_local:
-            # File is local, copy directly
-            src = os.path.join(self.vfs_provider.local_storage_dir, rel_path.lstrip("/"))
-            if os.path.exists(src):
-                shutil.copy2(src, dest_file)
-                self.set_status(f"Collected {os.path.basename(rel_path)} to {dest_dir}")
-                messagebox.showinfo("Collected", f"File saved to {dest_file}")
-            return
-
-        # Remote file: stream from remote peer into destination file
-        self.set_status(f"Collecting {os.path.basename(rel_path)} from {entry.holder_name}...")
-        holder_url = self.vfs_provider.resolve_holder_url(entry) if hasattr(self.vfs_provider, "resolve_holder_url") else entry.holder_url
-        encoded_path = urllib.parse.quote(entry.path)
-        raw_url = f"{holder_url.rstrip('/')}/__landrop__/api/raw{encoded_path}"
-
-        def _do_download():
-            import urllib.request
-            try:
-                with urllib.request.urlopen(raw_url, timeout=60) as resp, open(dest_file, "wb") as f_out:
-                    shutil.copyfileobj(resp, f_out)
-                self.root.after(0, lambda: messagebox.showinfo("Collected", f"Successfully collected to:\n{dest_file}"))
-                self.root.after(0, lambda: self.set_status(f"Collected {os.path.basename(rel_path)}"))
-            except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Download Error", f"Failed to collect file: {e}"))
-
-        import threading
-        threading.Thread(target=_do_download, daemon=True).start()
+        if hasattr(self, "var_drive_letter"):
+            letter = self.var_drive_letter.get().rstrip(":") + ":"
+            self._update_mount_display(is_drive_mounted(letter), letter)
 
     # --- Peer Tab Actions ---
 

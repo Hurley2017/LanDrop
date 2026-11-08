@@ -70,7 +70,8 @@ def main():
     server = WebDAVServer()
 
     discovery = DiscoveryService(
-        port=config.get("discovery_port", 42424)
+        port=config.get("discovery_port", 42424),
+        node_id=config.get("node_id"),
     )
 
     # 3. Initialize P2P Sync Engine

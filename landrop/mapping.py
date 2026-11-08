@@ -261,6 +261,11 @@ class MappingTable:
                             deleted=False,
                         )
                         changed = True
+                    elif entry.is_local and (entry.holder_node_id != node_id or entry.holder_url != my_url or entry.holder_name != device_name):
+                        entry.holder_node_id = node_id
+                        entry.holder_name = device_name
+                        entry.holder_url = my_url
+                        changed = True
 
             if changed:
                 self.save()

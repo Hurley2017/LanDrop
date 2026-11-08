@@ -53,9 +53,10 @@ class DiscoveryService:
     """Broadcasts own availability and sniffs peers running LanDrop."""
 
     def __init__(self, port: int = 42424,
+                 node_id: Optional[str] = None,
                  on_peers_changed: Optional[Callable[[List[PeerInfo]], None]] = None):
         self._port = port
-        self._node_id = uuid.uuid4().hex[:12]
+        self._node_id = node_id or uuid.uuid4().hex[:12]
         self._device_name = socket.gethostname()
         self._share_name = "LanDrop"
         self._webdav_port = 8080

@@ -48,6 +48,30 @@ def is_drive_mounted(drive_letter: str = "Z:") -> bool:
     return letter.rstrip(":") in get_used_drive_letters()
 
 
+def optimize_webclient_registry() -> bool:
+    """Attempt to configure Windows WebClient registry parameters for 4GB transfers and loopback access."""
+    if sys.platform != "win32":
+        return False
+    ps_cmd = (
+        "$p = 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\WebClient\\Parameters'; "
+        "if (Test-Path $p) { "
+        "  Set-ItemProperty -Path $p -Name 'FileSizeLimitInBytes' -Value 4294967295 -Type DWord -ErrorAction SilentlyContinue; "
+        "  Set-ItemProperty -Path $p -Name 'BasicAuthLevel' -Value 2 -Type DWord -ErrorAction SilentlyContinue; "
+        "}"
+    )
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True,
+            timeout=4,
+            creationflags=flags,
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 def set_drive_label(drive_letter: str = "Z:", label: str = "LanDrop") -> None:
     """Set the Windows File Explorer display name for the mapped drive letter."""
     if sys.platform != "win32":
@@ -81,6 +105,8 @@ def mount_drive(webdav_url: str, drive_letter: str = "Z:") -> Optional[str]:
     """
     if sys.platform != "win32":
         return None
+
+    optimize_webclient_registry()
 
     target_letter = drive_letter.rstrip(":").upper() + ":"
 

@@ -41,7 +41,12 @@ class SyncEngine:
             req = urllib.request.Request(fetch_url, headers={"User-Agent": "LanDrop-P2P"})
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+                remote_node_id = data.get("node_id")
                 remote_entries = data.get("entries", [])
+                # Ensure entries held by this peer point to the live URL that reached it
+                for item in remote_entries:
+                    if item.get("holder_node_id") == remote_node_id or not item.get("holder_url"):
+                        item["holder_url"] = clean_url + "/"
                 merged = self.mapping_table.merge_remote_entries(remote_entries, self.node_id)
                 logger.info("Synced with peer %s: merged %d entries", clean_url, merged)
 
@@ -137,8 +142,10 @@ class SyncEngine:
             rel_path = urllib.parse.unquote(raw_encoded)
             phys_path = os.path.normpath(os.path.join(self.local_storage_dir, rel_path))
 
-            # Prevent directory traversal
-            if not phys_path.startswith(self.local_storage_dir) or not os.path.isfile(phys_path):
+            # Prevent directory traversal with case-insensitive check on Windows
+            norm_phys = os.path.normcase(os.path.abspath(phys_path))
+            norm_pool = os.path.normcase(os.path.abspath(self.local_storage_dir))
+            if not norm_phys.startswith(norm_pool) or not os.path.isfile(phys_path):
                 start_response("404 Not Found", [("Content-Length", "0")])
                 return [b""]
 

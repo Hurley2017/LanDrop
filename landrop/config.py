@@ -2,6 +2,7 @@
 
 import os
 import json
+import uuid
 import socket
 from pathlib import Path
 
@@ -24,6 +25,7 @@ def get_default_config() -> dict:
     DEFAULT_SHARE_DIR.mkdir(parents=True, exist_ok=True)
     DEFAULT_STORAGE_POOL_DIR.mkdir(parents=True, exist_ok=True)
     return {
+        "node_id": uuid.uuid4().hex[:12],
         "shared_dir": str(DEFAULT_SHARE_DIR),
         "device_name": get_default_device_name(),
         "share_name": "LanDrop",
@@ -48,6 +50,9 @@ def load_config() -> dict:
                 saved = json.load(f)
                 config = get_default_config()
                 config.update(saved)
+                if "node_id" not in saved or not saved["node_id"]:
+                    config["node_id"] = uuid.uuid4().hex[:12]
+                    save_config(config)
                 return config
         except Exception:
             pass
