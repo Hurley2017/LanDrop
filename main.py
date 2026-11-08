@@ -92,6 +92,7 @@ def main():
         device_name=device_name,
         get_my_url_func=server.get_url,
         on_file_changed=lambda entries: sync_engine.broadcast_update(entries),
+        get_peers_func=discovery.get_peers,
     )
 
     # 5. Connect discovery events with auto-sync

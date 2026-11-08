@@ -5,6 +5,7 @@ import io
 import time
 import shutil
 import urllib.request
+import urllib.parse
 import mimetypes
 import logging
 from typing import Optional, List, Callable
@@ -14,6 +15,79 @@ from wsgidav import util
 from .mapping import MappingTable, MappingEntry
 
 logger = logging.getLogger("landrop.vfs")
+
+
+class RemoteStreamReader:
+    """A seekable file-like stream wrapping an HTTP endpoint for WsgiDAV and VLC."""
+
+    def __init__(self, raw_url: str, filesize: int):
+        self.url = raw_url
+        self.filesize = filesize
+        self.position = 0
+        self._resp = None
+
+    def _ensure_stream(self, start_pos: int = 0):
+        if self._resp is not None:
+            if self.position == start_pos:
+                return
+            try:
+                self._resp.close()
+            except Exception:
+                pass
+            self._resp = None
+
+        req = urllib.request.Request(self.url, headers={"User-Agent": "LanDrop-VFS"})
+        if start_pos > 0:
+            req.add_header("Range", f"bytes={start_pos}-")
+
+        try:
+            self._resp = urllib.request.urlopen(req, timeout=30)
+            self.position = start_pos
+        except Exception as e:
+            logger.error("Failed to open remote stream at %s: %s", self.url, e)
+            self._resp = None
+
+    def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
+        if whence == os.SEEK_SET:
+            target = max(0, offset)
+        elif whence == os.SEEK_CUR:
+            target = max(0, self.position + offset)
+        elif whence == os.SEEK_END:
+            target = max(0, self.filesize + offset)
+        else:
+            raise ValueError(f"Invalid whence: {whence}")
+
+        # If already at target position and stream is ready, nothing to do!
+        if target == self.position and self._resp is not None:
+            return self.position
+
+        self._ensure_stream(target)
+        return self.position
+
+    def tell(self) -> int:
+        return self.position
+
+    def read(self, size: int = -1) -> bytes:
+        if self._resp is None:
+            self._ensure_stream(self.position)
+        if self._resp is None:
+            return b""
+
+        try:
+            chunk = self._resp.read(size) if size >= 0 else self._resp.read()
+            self.position += len(chunk)
+            return chunk
+        except Exception as e:
+            logger.error("Error reading from remote stream %s: %s", self.url, e)
+            return b""
+
+    def close(self):
+        if self._resp:
+            try:
+                self._resp.close()
+            except Exception:
+                pass
+            self._resp = None
 
 
 class RemoteVirtualFileResource(DAVNonCollection):
@@ -35,8 +109,13 @@ class RemoteVirtualFileResource(DAVNonCollection):
     def get_last_modified(self) -> float:
         return self.entry.mtime
 
-    def get_etag(self) -> str:
-        return f'"{self.entry.file_hash}"'
+    def get_etag(self) -> Optional[str]:
+        if self.entry.file_hash:
+            return self.entry.file_hash.strip('"')
+        return f"{int(self.entry.mtime)}-{self.entry.size}"
+
+    def get_creation_date(self) -> Optional[float]:
+        return self.entry.mtime
 
     def support_etag(self) -> bool:
         return True
@@ -45,19 +124,11 @@ class RemoteVirtualFileResource(DAVNonCollection):
         return True
 
     def get_content(self):
-        """Stream file content directly from the remote peer holder."""
-        raw_url = f"{self.entry.holder_url.rstrip('/')}/__landrop__/api/raw{self.entry.path}"
-        req = urllib.request.Request(raw_url)
-        http_range = self.environ.get("HTTP_RANGE")
-        if http_range:
-            req.add_header("Range", http_range)
-
-        try:
-            resp = urllib.request.urlopen(req, timeout=30)
-            return resp
-        except Exception as e:
-            logger.error("Failed to stream remote file %s: %s", raw_url, e)
-            return io.BytesIO(b"")
+        """Stream file content directly from the remote peer holder using a seekable stream."""
+        holder_url = self.provider.resolve_holder_url(self.entry)
+        encoded_path = urllib.parse.quote(self.entry.path)
+        raw_url = f"{holder_url.rstrip('/')}/__landrop__/api/raw{encoded_path}"
+        return RemoteStreamReader(raw_url, self.entry.size)
 
     def begin_write(self, *, content_type=None):
         """Allow local client to replace remote file with a new local copy."""
@@ -95,7 +166,6 @@ class LocalVirtualFileResource(FileResource):
         fp_dest = self.provider._loc_to_file_path(dest_path, self.environ)
         try:
             os.makedirs(os.path.dirname(fp_dest), exist_ok=True)
-            # os.replace is atomic and automatically overwrites any existing file on Windows
             os.replace(self._file_path, fp_dest)
             self._file_path = fp_dest
 
@@ -181,7 +251,6 @@ class VirtualFolderResource(FolderResource):
 
     def get_member_names(self) -> List[str]:
         names = set()
-        # 1. Names from local disk
         if os.path.isdir(self._file_path):
             try:
                 for fn in os.listdir(self._file_path):
@@ -189,7 +258,6 @@ class VirtualFolderResource(FolderResource):
             except Exception:
                 pass
 
-        # 2. Names from mapping table for this folder path
         prefix = self.path.rstrip("/") + "/"
         if self.path == "/":
             prefix = "/"
@@ -204,7 +272,6 @@ class VirtualFolderResource(FolderResource):
         return sorted(list(names))
 
     def create_empty_resource(self, name: str) -> _DAVResource:
-        # Check quota before accepting new upload
         if self.provider.get_available_bytes() <= 0:
             raise Exception("Virtual storage quota exceeded")
 
@@ -238,6 +305,7 @@ class VirtualStorageProvider(FilesystemProvider):
         device_name: str,
         get_my_url_func: Callable[[], str],
         on_file_changed: Optional[Callable[[List[MappingEntry]], None]] = None,
+        get_peers_func: Optional[Callable[[], List]] = None,
     ):
         super().__init__(local_storage_dir, readonly=False)
         self.local_storage_dir = os.path.abspath(local_storage_dir)
@@ -248,6 +316,15 @@ class VirtualStorageProvider(FilesystemProvider):
         self.device_name = device_name
         self.get_my_url = get_my_url_func
         self.on_file_changed = on_file_changed
+        self.get_peers_func = get_peers_func
+
+    def resolve_holder_url(self, entry: MappingEntry) -> str:
+        """Resolve the live reachable URL for the peer hosting the file."""
+        if self.get_peers_func:
+            for peer in self.get_peers_func():
+                if peer.node_id == entry.holder_node_id and getattr(peer, "webdav_url", ""):
+                    return peer.webdav_url
+        return entry.holder_url
 
     def set_quota(self, quota_bytes: int) -> None:
         self.quota_bytes = quota_bytes

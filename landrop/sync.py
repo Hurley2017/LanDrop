@@ -7,6 +7,7 @@ import logging
 import threading
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import List, Optional, Callable
 from .mapping import MappingTable, MappingEntry
 
@@ -132,7 +133,8 @@ class SyncEngine:
 
         # 3. GET /__landrop__/api/raw/<rel_path> - Raw stream with HTTP Range support
         if path_info.startswith("/__landrop__/api/raw/"):
-            rel_path = path_info[len("/__landrop__/api/raw/"):].lstrip("/")
+            raw_encoded = path_info[len("/__landrop__/api/raw/"):].lstrip("/")
+            rel_path = urllib.parse.unquote(raw_encoded)
             phys_path = os.path.normpath(os.path.join(self.local_storage_dir, rel_path))
 
             # Prevent directory traversal

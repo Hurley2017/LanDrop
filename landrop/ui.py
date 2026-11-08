@@ -497,7 +497,9 @@ class LanDropAppUI:
 
         # Remote file: stream from remote peer into destination file
         self.set_status(f"Collecting {os.path.basename(rel_path)} from {entry.holder_name}...")
-        raw_url = f"{entry.holder_url.rstrip('/')}/__landrop__/api/raw{entry.path}"
+        holder_url = self.vfs_provider.resolve_holder_url(entry) if hasattr(self.vfs_provider, "resolve_holder_url") else entry.holder_url
+        encoded_path = urllib.parse.quote(entry.path)
+        raw_url = f"{holder_url.rstrip('/')}/__landrop__/api/raw{encoded_path}"
 
         def _do_download():
             import urllib.request
