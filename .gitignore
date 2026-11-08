@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+
+# PyInstaller build files
+build/
+dist/
+*.spec
+
+# Compiled Binaries (published to GitHub Releases)
+*.exe
+
