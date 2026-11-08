@@ -1,8 +1,7 @@
-"""Native Tkinter setup UI and peer manager for LanDrop."""
+"""Simple, stylish, and uncluttered desktop UI for LanDrop."""
 
 import os
 import sys
-import shutil
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from typing import List, Optional, Callable
@@ -11,32 +10,21 @@ from .utils import get_local_ip, open_path_or_url, get_asset_path
 from .tailscale import get_tailscale_info
 from .discovery import PeerInfo, DiscoveryService
 from .webdav_server import WebDAVServer
-from .drive import mount_drive, unmount_drive, is_drive_mounted, get_available_drive_letter, optimize_webclient_registry
+from .drive import mount_drive, unmount_drive, is_drive_mounted, optimize_webclient_registry
 from .mapping import MappingTable, MappingEntry
 from .vfs import VirtualStorageProvider
 from .sync import SyncEngine
 
-# Modern Color Palette
-BG_WINDOW = "#F8FAFC"       # Slate-50 window canvas
-BG_CARD = "#FFFFFF"         # Pure white cards
-BORDER_CARD = "#E2E8F0"     # Crisp subtle border (Slate-200)
-
-COLOR_PRIMARY = "#4F46E5"   # Indigo-600
-COLOR_PRIMARY_HOVER = "#4338CA"
-COLOR_PRIMARY_BG = "#EEF2FF"
-COLOR_PRIMARY_TEXT = "#312E81"
-
-COLOR_SUCCESS = "#10B981"   # Emerald-500
-COLOR_SUCCESS_BG = "#DCFCE7"# Emerald-100
-COLOR_SUCCESS_TEXT = "#166534"
-
-COLOR_PURPLE = "#8B5CF6"    # Purple-500 (Tailscale)
-COLOR_PURPLE_BG = "#EDE9FE" # Purple-100
-COLOR_PURPLE_TEXT = "#5B21B6"
-
-COLOR_TEXT_MAIN = "#0F172A" # Slate-900
-COLOR_TEXT_MUTED = "#64748B"# Slate-500
-COLOR_TEXT_LIGHT = "#94A3B8"# Slate-400
+# Minimalist, elegant palette
+BG_APP = "#F9FAFB"         # Clean Gray-50
+BG_CARD = "#FFFFFF"        # Pure White
+BORDER_CARD = "#E5E7EB"    # Gray-200
+COLOR_PRIMARY = "#2563EB"  # Royal Blue
+COLOR_TEXT_MAIN = "#111827"# Gray-900
+COLOR_TEXT_MUTED = "#6B7280"# Gray-500
+COLOR_GREEN = "#10B981"    # Emerald-500
+COLOR_GREEN_BG = "#ECFDF5" # Emerald-50
+COLOR_GREEN_TEXT = "#065F46"
 
 
 def format_bytes(num_bytes: int) -> str:
@@ -49,7 +37,7 @@ def format_bytes(num_bytes: int) -> str:
 
 
 class LanDropAppUI:
-    """Main application window for LanDrop."""
+    """Minimalist, stylish application window for LanDrop."""
 
     def __init__(
         self,
@@ -71,10 +59,10 @@ class LanDropAppUI:
         self.config = config
         self.on_exit_requested = on_exit_requested
 
-        self.root.title("LanDrop - Distributed Virtual Drive")
-        self.root.geometry("780x680")
-        self.root.minsize(720, 580)
-        self.root.configure(bg=BG_WINDOW)
+        self.root.title("LanDrop")
+        self.root.geometry("620x510")
+        self.root.minsize(580, 460)
+        self.root.configure(bg=BG_APP)
 
         icon_file = get_asset_path("icon.ico")
         if os.path.exists(icon_file):
@@ -83,13 +71,9 @@ class LanDropAppUI:
             except Exception:
                 pass
 
-        # Style configuration
         self._setup_styles()
-
-        # Intercept close window to minimize to system tray
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
 
-        # Track UI state
         self._discovered_peers: List[PeerInfo] = []
         self._virtual_files: List[MappingEntry] = []
 
@@ -104,547 +88,327 @@ class LanDropAppUI:
         except Exception:
             pass
 
-        # Configure notebook tabs
         try:
-            style.configure("TNotebook", background=BG_WINDOW, borderwidth=0)
-            style.configure("TNotebook.Tab", font=("Segoe UI", 9, "bold"), padding=[14, 8])
+            style.configure("TNotebook", background=BG_APP, borderwidth=0)
+            style.configure("TNotebook.Tab", font=("Segoe UI", 9, "bold"), padding=[16, 7])
         except Exception:
             pass
 
+        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=[14, 6])
         style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"))
-        style.configure("Hero.TButton", font=("Segoe UI", 10, "bold"), padding=[14, 6])
-        style.configure("Card.TLabel", background=BG_CARD, foreground=COLOR_TEXT_MAIN, font=("Segoe UI", 9))
-        style.configure("CardMuted.TLabel", background=BG_CARD, foreground=COLOR_TEXT_MUTED, font=("Segoe UI", 8))
-        style.configure("CardTitle.TLabel", background=BG_CARD, foreground=COLOR_TEXT_MAIN, font=("Segoe UI", 10, "bold"))
 
-        # Treeview styling
         try:
-            style.configure(
-                "Custom.Treeview",
-                font=("Segoe UI", 9),
-                rowheight=26,
-            )
-            style.configure(
-                "Custom.Treeview.Heading",
-                font=("Segoe UI", 9, "bold"),
-            )
+            style.configure("Peers.Treeview", font=("Segoe UI", 9), rowheight=26)
+            style.configure("Peers.Treeview.Heading", font=("Segoe UI", 9, "bold"))
         except Exception:
             pass
-
-    def _create_card(self, parent: tk.Widget, padding: int = 12, pady=(0, 10), fill=tk.X) -> tk.Frame:
-        """Create a styled modern white card container."""
-        card = tk.Frame(
-            parent,
-            bg=BG_CARD,
-            highlightbackground=BORDER_CARD,
-            highlightthickness=1,
-            padx=padding,
-            pady=padding,
-        )
-        card.pack(fill=fill, pady=pady)
-        return card
 
     def _build_ui(self) -> None:
-        main_frame = tk.Frame(self.root, bg=BG_WINDOW, padx=16, pady=12)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Frame(self.root, bg=BG_APP, padx=18, pady=14)
+        canvas.pack(fill=tk.BOTH, expand=True)
 
-        # --- Top Header Section ---
-        header_frame = tk.Frame(main_frame, bg=BG_WINDOW)
-        header_frame.pack(fill=tk.X, pady=(0, 12))
+        # --- Top Header: Minimalist & Clean ---
+        header = tk.Frame(canvas, bg=BG_APP)
+        header.pack(fill=tk.X, pady=(0, 12))
 
-        # Brand Title & Logo Badge
-        brand_box = tk.Frame(header_frame, bg=BG_WINDOW)
+        # Brand Title
+        brand_box = tk.Frame(header, bg=BG_APP)
         brand_box.pack(side=tk.LEFT)
 
-        logo_row = tk.Frame(brand_box, bg=BG_WINDOW)
-        logo_row.pack(anchor="w")
-
-        logo_pill = tk.Label(
-            logo_row,
-            text=" 📁 LanDrop ",
-            font=("Segoe UI", 14, "bold"),
-            bg=COLOR_PRIMARY_BG,
-            fg=COLOR_PRIMARY_TEXT,
-            padx=6,
-            pady=2,
-            relief="flat",
-        )
-        logo_pill.pack(side=tk.LEFT, padx=(0, 8))
-
-        lbl_title = tk.Label(
-            logo_row,
-            text="Virtual Storage Drive",
-            font=("Segoe UI", 16, "bold"),
-            bg=BG_WINDOW,
-            fg=COLOR_TEXT_MAIN,
-        )
-        lbl_title.pack(side=tk.LEFT)
-
-        lbl_subtitle = tk.Label(
+        tk.Label(
             brand_box,
-            text="High-Speed Distributed Virtual Storage & Peer-to-Peer Mesh Share",
-            font=("Segoe UI", 9),
-            bg=BG_WINDOW,
+            text="LanDrop",
+            font=("Segoe UI", 16, "bold"),
+            bg=BG_APP,
+            fg=COLOR_TEXT_MAIN,
+        ).pack(side=tk.LEFT)
+
+        tk.Label(
+            brand_box,
+            text="• Virtual Storage",
+            font=("Segoe UI", 10),
+            bg=BG_APP,
             fg=COLOR_TEXT_MUTED,
-        )
-        lbl_subtitle.pack(anchor="w", pady=(2, 0))
+        ).pack(side=tk.LEFT, padx=(6, 0), pady=(3, 0))
 
-        # Header Right Status Chips
-        chips_box = tk.Frame(header_frame, bg=BG_WINDOW)
-        chips_box.pack(side=tk.RIGHT, pady=4)
+        # Live Status Badges (Right side)
+        badges = tk.Frame(header, bg=BG_APP)
+        badges.pack(side=tk.RIGHT)
 
-        self.chip_status = tk.Label(
-            chips_box,
-            text="● Online & Mesh Active",
-            font=("Segoe UI", 8, "bold"),
-            bg=COLOR_SUCCESS_BG,
-            fg=COLOR_SUCCESS_TEXT,
-            padx=8,
-            pady=4,
-        )
-        self.chip_status.pack(side=tk.RIGHT, padx=(6, 0))
-
-        self.chip_peers = tk.Label(
-            chips_box,
-            text="👥 0 Peers",
-            font=("Segoe UI", 8, "bold"),
-            bg=COLOR_PRIMARY_BG,
-            fg=COLOR_PRIMARY_TEXT,
-            padx=8,
-            pady=4,
-        )
-        self.chip_peers.pack(side=tk.RIGHT, padx=(6, 0))
-
-        self.chip_drive = tk.Label(
-            chips_box,
-            text="Z:\\ Mounted",
+        self.badge_drive = tk.Label(
+            badges,
+            text="Z:\\ Ready",
             font=("Segoe UI", 8, "bold"),
             bg="#E0F2FE",
             fg="#0369A1",
             padx=8,
-            pady=4,
+            pady=3,
         )
-        self.chip_drive.pack(side=tk.RIGHT)
+        self.badge_drive.pack(side=tk.RIGHT, padx=(6, 0))
 
-        # --- Tabs (Notebook) ---
-        notebook = ttk.Notebook(main_frame)
+        self.badge_peers = tk.Label(
+            badges,
+            text="👥 0 Peers",
+            font=("Segoe UI", 8, "bold"),
+            bg="#EEF2FF",
+            fg="#4338CA",
+            padx=8,
+            pady=3,
+        )
+        self.badge_peers.pack(side=tk.RIGHT)
+
+        # --- Notebook Tabs: 3 Clean Tabs ---
+        notebook = ttk.Notebook(canvas)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        # Tab 1: Virtual Drive (Z:)
-        self.tab_vfs = tk.Frame(notebook, bg=BG_WINDOW, padx=12, pady=12)
-        notebook.add(self.tab_vfs, text="   📁 Virtual Drive (Z:)   ")
-        self._build_vfs_tab(self.tab_vfs)
+        # Tab 1: Virtual Drive
+        self.tab_drive = tk.Frame(notebook, bg=BG_APP, padx=12, pady=12)
+        notebook.add(self.tab_drive, text="  📁 Drive (Z:)  ")
+        self._build_drive_tab(self.tab_drive)
 
-        # Tab 2: Discovered Peers
-        self.tab_peers = tk.Frame(notebook, bg=BG_WINDOW, padx=12, pady=12)
-        notebook.add(self.tab_peers, text="   👥 Connected Peers   ")
+        # Tab 2: Connected Peers
+        self.tab_peers = tk.Frame(notebook, bg=BG_APP, padx=12, pady=12)
+        notebook.add(self.tab_peers, text="  👥 Peers  ")
         self._build_peers_tab(self.tab_peers)
 
-        # Tab 3: Network & Share Settings
-        self.tab_share = tk.Frame(notebook, bg=BG_WINDOW, padx=12, pady=12)
-        notebook.add(self.tab_share, text="   ⚙️ Network Settings   ")
-        self._build_share_tab(self.tab_share)
+        # Tab 3: Settings
+        self.tab_settings = tk.Frame(notebook, bg=BG_APP, padx=12, pady=12)
+        notebook.add(self.tab_settings, text="  ⚙️ Settings  ")
+        self._build_settings_tab(self.tab_settings)
 
-        # Tab 4: How It Works Guide
-        self.tab_guide = tk.Frame(notebook, bg=BG_WINDOW, padx=12, pady=12)
-        notebook.add(self.tab_guide, text="   💡 How It Works   ")
-        self._build_guide_tab(self.tab_guide)
+        # --- Bottom Status Footer ---
+        footer = tk.Frame(canvas, bg=BG_APP)
+        footer.pack(fill=tk.X, pady=(10, 0))
 
-        # --- Footer / Status bar ---
-        footer_frame = tk.Frame(main_frame, bg=BG_WINDOW)
-        footer_frame.pack(fill=tk.X, pady=(10, 0))
+        self.lbl_footer_status = tk.Label(
+            footer,
+            text="● LanDrop is active and ready",
+            font=("Segoe UI", 8),
+            bg=BG_APP,
+            fg=COLOR_TEXT_MUTED,
+        )
+        self.lbl_footer_status.pack(side=tk.LEFT)
 
-        self.status_dot = tk.Label(footer_frame, text="●", font=("Segoe UI", 8), bg=BG_WINDOW, fg=COLOR_SUCCESS)
-        self.status_dot.pack(side=tk.LEFT, padx=(0, 4))
-
-        self.status_text = tk.Label(footer_frame, text="Ready", font=("Segoe UI", 8), bg=BG_WINDOW, fg=COLOR_TEXT_MUTED)
-        self.status_text.pack(side=tk.LEFT)
-
-        btn_box = tk.Frame(footer_frame, bg=BG_WINDOW)
+        btn_box = tk.Frame(footer, bg=BG_APP)
         btn_box.pack(side=tk.RIGHT)
 
-        ttk.Button(btn_box, text="Minimize to Tray", command=self.hide_window).pack(side=tk.LEFT, padx=4)
-        ttk.Button(btn_box, text="Exit LanDrop", command=self.on_exit_requested).pack(side=tk.LEFT)
+        ttk.Button(btn_box, text="Minimize", command=self.hide_window).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_box, text="Exit", command=self.on_exit_requested).pack(side=tk.LEFT)
 
-    def _build_vfs_tab(self, parent: tk.Widget) -> None:
-        # --- Card 1: Drive Hero Banner ---
-        hero_card = self._create_card(parent, padding=14, pady=(0, 10))
+    def _build_drive_tab(self, parent: tk.Widget) -> None:
+        """Main Drive tab: Simple, prominent, zero clutter."""
+        card = tk.Frame(parent, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=20, pady=20)
+        card.pack(fill=tk.BOTH, expand=True)
 
-        top_row = tk.Frame(hero_card, bg=BG_CARD)
-        top_row.pack(fill=tk.X)
+        # Hero Drive Icon & Title
+        hero_box = tk.Frame(card, bg=BG_CARD)
+        hero_box.pack(pady=(6, 14))
 
-        title_col = tk.Frame(top_row, bg=BG_CARD)
-        title_col.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        self.lbl_hero_drive = tk.Label(
-            title_col,
+        self.lbl_drive_title = tk.Label(
+            hero_box,
             text="LanDrop Drive (Z:)",
-            font=("Segoe UI", 13, "bold"),
+            font=("Segoe UI", 16, "bold"),
             bg=BG_CARD,
             fg=COLOR_TEXT_MAIN,
         )
-        self.lbl_hero_drive.pack(anchor="w")
+        self.lbl_drive_title.pack()
 
-        lbl_hero_sub = tk.Label(
-            title_col,
-            text="Mounted directly in Windows File Explorer. Accessible by all LanDrop peers.",
-            font=("Segoe UI", 8),
+        self.lbl_drive_state = tk.Label(
+            hero_box,
+            text="● Connected to Windows File Explorer",
+            font=("Segoe UI", 9),
             bg=BG_CARD,
-            fg=COLOR_TEXT_MUTED,
+            fg=COLOR_GREEN_TEXT,
         )
-        lbl_hero_sub.pack(anchor="w", pady=(1, 0))
+        self.lbl_drive_state.pack(pady=(2, 0))
 
-        # Hero Action Button (Large)
-        self.btn_open_drive = ttk.Button(
-            top_row,
-            text="📂  Open LanDrop in Explorer",
-            style="Hero.TButton",
+        # Main Big Hero Action Button
+        self.btn_open_hero = ttk.Button(
+            card,
+            text="📂  Open LanDrop (Z:) in File Explorer",
+            style="Primary.TButton",
             command=self._open_virtual_drive,
         )
-        self.btn_open_drive.pack(side=tk.RIGHT, padx=(8, 0))
+        self.btn_open_hero.pack(pady=(0, 18), ipadx=10, ipady=3)
 
-        # Mount Control Strip
-        ctrl_strip = tk.Frame(hero_card, bg="#F8FAFC", padx=10, pady=8, highlightbackground="#F1F5F9", highlightthickness=1)
-        ctrl_strip.pack(fill=tk.X, pady=(10, 0))
+        # Minimal Divider
+        div = tk.Frame(card, bg=BORDER_CARD, height=1)
+        div.pack(fill=tk.X, pady=(0, 14))
 
-        tk.Label(ctrl_strip, text="Drive Letter:", font=("Segoe UI", 8, "bold"), bg="#F8FAFC", fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 6))
+        # Storage Usage Bar
+        st_box = tk.Frame(card, bg=BG_CARD)
+        st_box.pack(fill=tk.X, pady=(0, 12))
 
+        st_top = tk.Frame(st_box, bg=BG_CARD)
+        st_top.pack(fill=tk.X, pady=(0, 4))
+
+        tk.Label(
+            st_top,
+            text="Virtual Storage Capacity",
+            font=("Segoe UI", 9, "bold"),
+            bg=BG_CARD,
+            fg=COLOR_TEXT_MAIN,
+        ).pack(side=tk.LEFT)
+
+        self.lbl_storage_stats = tk.Label(
+            st_top,
+            text="0 B used of 20.0 GB",
+            font=("Segoe UI", 8),
+            bg=BG_CARD,
+            fg=COLOR_TEXT_MUTED,
+        )
+        self.lbl_storage_stats.pack(side=tk.RIGHT)
+
+        self.progress_storage = ttk.Progressbar(st_box, orient="horizontal", mode="determinate")
+        self.progress_storage.pack(fill=tk.X)
+
+        # Drive Actions Row (Drive Letter, Remount, Open Physical)
+        act_row = tk.Frame(card, bg=BG_CARD)
+        act_row.pack(fill=tk.X, pady=(10, 0))
+
+        tk.Label(act_row, text="Drive Letter:", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
         self.var_drive_letter = tk.StringVar(value=self.config.get("mount_drive_letter", "Z:"))
-        self.combo_drive = ttk.Combobox(
-            ctrl_strip,
+        combo_drive = ttk.Combobox(
+            act_row,
             textvariable=self.var_drive_letter,
             values=["Z:", "Y:", "X:", "W:", "V:"],
-            width=5,
+            width=4,
             state="readonly",
         )
-        self.combo_drive.pack(side=tk.LEFT, padx=(0, 12))
+        combo_drive.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.lbl_mount_status = tk.Label(
-            ctrl_strip,
-            text="● Checking mount...",
-            font=("Segoe UI", 8, "bold"),
-            bg="#F8FAFC",
-            fg=COLOR_SUCCESS_TEXT,
-        )
-        self.lbl_mount_status.pack(side=tk.LEFT, padx=(0, 16))
+        self.btn_remount = ttk.Button(act_row, text="Remount", command=self._toggle_mount_drive)
+        self.btn_remount.pack(side=tk.LEFT, padx=(0, 12))
 
-        self.btn_toggle_mount = ttk.Button(ctrl_strip, text="Remount", command=self._toggle_mount_drive)
-        self.btn_toggle_mount.pack(side=tk.LEFT, padx=(0, 12))
-
-        self.btn_fix_limit = ttk.Button(ctrl_strip, text="⚡ Fix Windows 47MB Limit", command=self._apply_webclient_fix)
-        self.btn_fix_limit.pack(side=tk.RIGHT)
-
-        # --- Card 2: Storage Quota & Capacity Dashboard ---
-        quota_card = self._create_card(parent, padding=14, pady=(0, 10))
-
-        q_head = tk.Frame(quota_card, bg=BG_CARD)
-        q_head.pack(fill=tk.X, pady=(0, 6))
-
-        tk.Label(
-            q_head,
-            text="Virtual Storage Capacity & Quota",
-            font=("Segoe UI", 10, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(side=tk.LEFT)
-
-        self.lbl_pct_badge = tk.Label(
-            q_head,
-            text="0.0% Used",
-            font=("Segoe UI", 8, "bold"),
-            bg=COLOR_PRIMARY_BG,
-            fg=COLOR_PRIMARY_TEXT,
-            padx=6,
-            pady=2,
-        )
-        self.lbl_pct_badge.pack(side=tk.RIGHT)
-
-        # Progress bar
-        self.progress_quota = ttk.Progressbar(quota_card, orient="horizontal", mode="determinate")
-        self.progress_quota.pack(fill=tk.X, pady=(2, 6))
-
-        # Stats Row
-        stats_row = tk.Frame(quota_card, bg=BG_CARD)
-        stats_row.pack(fill=tk.X, pady=(0, 8))
-
-        self.lbl_quota_usage = tk.Label(
-            stats_row,
-            text="Used: 0 B  •  Available: 20.0 GB  •  Allocated Quota: 20.0 GB",
-            font=("Segoe UI", 8),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MUTED,
-        )
-        self.lbl_quota_usage.pack(side=tk.LEFT)
-
-        # Quota Configuration Controls & Presets
-        q_ctrls = tk.Frame(quota_card, bg=BG_CARD)
-        q_ctrls.pack(fill=tk.X, pady=(4, 0))
-
-        tk.Label(q_ctrls, text="Set Quota:", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT, padx=(0, 6))
-
-        self.var_quota_gb = tk.StringVar(value=str(self.config.get("virtual_storage_gb", 20)))
-        spin_quota = ttk.Spinbox(q_ctrls, from_=1, to=1000, textvariable=self.var_quota_gb, width=5)
-        spin_quota.pack(side=tk.LEFT, padx=(0, 4))
-        tk.Label(q_ctrls, text="GB", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 10))
-
-        ttk.Button(q_ctrls, text="Update", command=self._update_quota).pack(side=tk.LEFT, padx=(0, 16))
-
-        tk.Label(q_ctrls, text="Presets:", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
-        for gb_val in [10, 20, 50, 100]:
-            btn_pre = ttk.Button(
-                q_ctrls,
-                text=f"{gb_val}GB",
-                width=5,
-                command=lambda val=gb_val: self._set_quota_preset(val),
-            )
-            btn_pre.pack(side=tk.LEFT, padx=2)
-
-        # --- Card 3: Local Physical Storage Pool ---
-        pool_card = self._create_card(parent, padding=14, pady=(0, 10))
-
-        p_head = tk.Frame(pool_card, bg=BG_CARD)
-        p_head.pack(fill=tk.X, pady=(0, 6))
-
-        tk.Label(
-            p_head,
-            text="Local Physical Storage Pool",
-            font=("Segoe UI", 10, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(side=tk.LEFT)
-
-        self.lbl_pool_stats = tk.Label(
-            p_head,
-            text="Physical disk backend",
-            font=("Segoe UI", 8),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MUTED,
-        )
-        self.lbl_pool_stats.pack(side=tk.RIGHT)
-
-        p_row = tk.Frame(pool_card, bg=BG_CARD)
-        p_row.pack(fill=tk.X, pady=2)
-
-        self.lbl_pool_path = tk.Label(
-            p_row,
-            text=self.vfs_provider.local_storage_dir,
-            font=("Consolas", 8),
-            bg="#F1F5F9",
-            fg=COLOR_TEXT_MAIN,
-            padx=8,
-            pady=4,
-            anchor="w",
-        )
-        self.lbl_pool_path.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-
-        ttk.Button(p_row, text="Open Folder", command=self._open_physical_pool).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(p_row, text="Change...", command=self._change_physical_pool).pack(side=tk.LEFT)
-
-        # --- Card 4: Seamless Drive Experience Guide ---
-        guide_card = self._create_card(parent, padding=14, pady=(0, 0), fill=tk.BOTH)
-
-        tk.Label(
-            guide_card,
-            text="✨ How to Use Your LanDrop Drive",
-            font=("Segoe UI", 9, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(anchor="w", pady=(0, 6))
-
-        bullets = [
-            ("📁 Native Windows Experience", "Your LanDrop drive behaves like an internal SSD. Browse, organize, and rename files freely."),
-            ("🚀 Drag & Drop to Share", "Drop any file or folder directly into Z: in File Explorer. It instantly appears across all peers."),
-            ("🎬 Instant Streaming", "Double-click videos, audio, or PDFs hosted on other PCs to stream immediately without waiting to download."),
-            ("🌐 Zero Configuration Mesh", "Peers automatically sniff and connect over local Wi-Fi or secure Tailscale mesh."),
-        ]
-
-        for b_title, b_desc in bullets:
-            b_row = tk.Frame(guide_card, bg=BG_CARD)
-            b_row.pack(anchor="w", pady=2)
-            tk.Label(b_row, text=f"• {b_title}:", font=("Segoe UI", 8, "bold"), bg=BG_CARD, fg=COLOR_PRIMARY).pack(side=tk.LEFT)
-            tk.Label(b_row, text=f" {b_desc}", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT)
+        ttk.Button(act_row, text="Open Storage Folder", command=self._open_physical_pool).pack(side=tk.RIGHT)
 
     def _build_peers_tab(self, parent: tk.Widget) -> None:
-        # --- Card 1: Network Mesh Overview ---
-        mesh_card = self._create_card(parent, padding=12, pady=(0, 10))
+        """Connected peers tab: Clean, uncluttered list."""
+        card = tk.Frame(parent, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=14, pady=14)
+        card.pack(fill=tk.BOTH, expand=True)
 
-        m_row = tk.Frame(mesh_card, bg=BG_CARD)
-        m_row.pack(fill=tk.X)
+        top_row = tk.Frame(card, bg=BG_CARD)
+        top_row.pack(fill=tk.X, pady=(0, 8))
 
-        self.lbl_mesh_info = tk.Label(
-            m_row,
-            text=f"🖥️ This Device: {self.config.get('device_name', 'LanDrop-PC')}  •  Node ID: {self.config.get('node_id', 'unknown')}",
-            font=("Segoe UI", 9, "bold"),
+        self.lbl_peers_count = tk.Label(
+            top_row,
+            text="Connected Computers (0 Online)",
+            font=("Segoe UI", 10, "bold"),
             bg=BG_CARD,
             fg=COLOR_TEXT_MAIN,
         )
-        self.lbl_mesh_info.pack(side=tk.LEFT)
+        self.lbl_peers_count.pack(side=tk.LEFT)
 
-        ttk.Button(m_row, text="🔄  Rescan Peers", command=self._rescan_peers).pack(side=tk.RIGHT)
-
-        # --- Card 2: Discovered Peers Table ---
-        table_card = self._create_card(parent, padding=12, pady=(0, 10), fill=tk.BOTH)
-
-        t_head = tk.Frame(table_card, bg=BG_CARD)
-        t_head.pack(fill=tk.X, pady=(0, 6))
-
-        tk.Label(
-            t_head,
-            text="Connected Mesh Computers Sharing This Virtual Storage:",
-            font=("Segoe UI", 9, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(side=tk.LEFT)
+        ttk.Button(top_row, text="🔄  Rescan", command=self._rescan_peers).pack(side=tk.RIGHT)
 
         cols = ("device", "network", "ip", "port", "access", "url")
         self.peer_tree = ttk.Treeview(
-            table_card,
+            card,
             columns=cols,
             show="headings",
-            height=10,
+            height=8,
             selectmode="browse",
-            style="Custom.Treeview",
+            style="Peers.Treeview",
         )
-        self.peer_tree.heading("device", text="Device Name")
+        self.peer_tree.heading("device", text="Device")
         self.peer_tree.heading("network", text="Network")
         self.peer_tree.heading("ip", text="IP Address")
         self.peer_tree.heading("port", text="Port")
-        self.peer_tree.heading("access", text="Access Mode")
+        self.peer_tree.heading("access", text="Mode")
         self.peer_tree.heading("url", text="WebDAV URL")
 
-        self.peer_tree.column("device", width=140)
-        self.peer_tree.column("network", width=95)
-        self.peer_tree.column("ip", width=115)
-        self.peer_tree.column("port", width=60)
-        self.peer_tree.column("access", width=85)
-        self.peer_tree.column("url", width=220)
+        self.peer_tree.column("device", width=130)
+        self.peer_tree.column("network", width=90)
+        self.peer_tree.column("ip", width=110)
+        self.peer_tree.column("port", width=55)
+        self.peer_tree.column("access", width=80)
+        self.peer_tree.column("url", width=180)
 
-        scrollbar = ttk.Scrollbar(table_card, orient=tk.VERTICAL, command=self.peer_tree.yview)
+        scrollbar = ttk.Scrollbar(card, orient=tk.VERTICAL, command=self.peer_tree.yview)
         self.peer_tree.configure(yscrollcommand=scrollbar.set)
 
         self.peer_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.peer_tree.bind("<Double-1>", lambda event: self._open_selected_peer())
+        self.peer_tree.bind("<Double-1>", lambda e: self._open_selected_peer())
 
-        # --- Card 3: Peer Action Toolbar ---
-        act_card = self._create_card(parent, padding=10, pady=(0, 0))
+        # Action Strip
+        act_row = tk.Frame(parent, bg=BG_APP)
+        act_row.pack(fill=tk.X, pady=(10, 0))
 
-        ttk.Button(act_card, text="⚡  Sync Mapping Tables", style="Accent.TButton", command=self._sync_selected_peer).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(act_card, text="📂  Open Remote in Explorer", command=self._open_selected_peer).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(act_card, text="📋  Copy WebDAV URL", command=self._copy_selected_peer_url).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(act_card, text="➕  Connect by IP / Tailscale...", command=self._manual_connect_dialog).pack(side=tk.RIGHT)
+        ttk.Button(act_row, text="⚡  Sync Mapping", style="Accent.TButton", command=self._sync_selected_peer).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(act_row, text="📂  Open in Explorer", command=self._open_selected_peer).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(act_row, text="📋  Copy URL", command=self._copy_selected_peer_url).pack(side=tk.LEFT)
+        ttk.Button(act_row, text="➕  Connect by IP...", command=self._manual_connect_dialog).pack(side=tk.RIGHT)
 
-    def _build_share_tab(self, parent: tk.Widget) -> None:
-        # --- Card 1: Device Configuration ---
-        dev_card = self._create_card(parent, padding=14, pady=(0, 10))
+    def _build_settings_tab(self, parent: tk.Widget) -> None:
+        """Settings tab: Clean, essential options only."""
+        card = tk.Frame(parent, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=16, pady=16)
+        card.pack(fill=tk.BOTH, expand=True)
 
         tk.Label(
-            dev_card,
-            text="Device Identity & Port Configuration",
+            card,
+            text="Preferences & Network Endpoints",
             font=("Segoe UI", 10, "bold"),
             bg=BG_CARD,
             fg=COLOR_TEXT_MAIN,
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, 12))
 
-        row1 = tk.Frame(dev_card, bg=BG_CARD)
-        row1.pack(fill=tk.X, pady=3)
-
-        tk.Label(row1, text="Device Name:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        # Device Name Row
+        r1 = tk.Frame(card, bg=BG_CARD)
+        r1.pack(fill=tk.X, pady=4)
+        tk.Label(r1, text="Device Name:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         self.var_device = tk.StringVar(value=self.config.get("device_name", ""))
-        ttk.Entry(row1, textvariable=self.var_device, width=26).pack(side=tk.LEFT, padx=(0, 20))
+        ttk.Entry(r1, textvariable=self.var_device, width=22).pack(side=tk.LEFT, padx=(0, 16))
 
-        tk.Label(row1, text="WebDAV Port:", width=12, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        tk.Label(r1, text="Quota:", width=6, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        self.var_quota_gb = tk.StringVar(value=str(self.config.get("virtual_storage_gb", 20)))
+        ttk.Entry(r1, textvariable=self.var_quota_gb, width=5).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(r1, text="GB", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(side=tk.LEFT)
+
+        # Port Row
+        r2 = tk.Frame(card, bg=BG_CARD)
+        r2.pack(fill=tk.X, pady=4)
+        tk.Label(r2, text="WebDAV Port:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         self.var_port = tk.StringVar(value=str(self.config.get("webdav_port", 8080)))
-        ttk.Entry(row1, textvariable=self.var_port, width=8).pack(side=tk.LEFT)
-
-        row2 = tk.Frame(dev_card, bg=BG_CARD)
-        row2.pack(fill=tk.X, pady=(8, 2))
+        ttk.Entry(r2, textvariable=self.var_port, width=8).pack(side=tk.LEFT, padx=(0, 16))
 
         self.var_readonly = tk.BooleanVar(value=self.config.get("read_only", False))
-        ttk.Checkbutton(
-            row2,
-            text="Read-Only Mode (prevent peers from modifying files stored on this machine)",
-            variable=self.var_readonly,
-        ).pack(anchor="w")
+        ttk.Checkbutton(r2, text="Read-only mode", variable=self.var_readonly).pack(side=tk.LEFT)
 
-        # --- Card 2: Network Access Endpoints ---
-        net_card = self._create_card(parent, padding=14, pady=(0, 10))
+        # Divider
+        div = tk.Frame(card, bg=BORDER_CARD, height=1)
+        div.pack(fill=tk.X, pady=12)
 
-        tk.Label(
-            net_card,
-            text="Live Network Endpoints",
-            font=("Segoe UI", 10, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(anchor="w", pady=(0, 8))
-
-        # Local LAN URL
-        url_row = tk.Frame(net_card, bg=BG_CARD)
-        url_row.pack(fill=tk.X, pady=3)
-
-        tk.Label(url_row, text="Local LAN URL:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        # LAN URL
+        r3 = tk.Frame(card, bg=BG_CARD)
+        r3.pack(fill=tk.X, pady=4)
+        tk.Label(r3, text="Local LAN URL:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         self.var_url = tk.StringVar(value="")
-        entry_url = ttk.Entry(url_row, textvariable=self.var_url, state="readonly")
-        entry_url.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Entry(r3, textvariable=self.var_url, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        ttk.Button(r3, text="Copy", command=self._copy_url).pack(side=tk.LEFT)
 
-        ttk.Button(url_row, text="Copy", command=self._copy_url).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(url_row, text="Open", command=self._open_webdav_url).pack(side=tk.LEFT)
-
-        # Tailscale VPN URL
-        ts_row = tk.Frame(net_card, bg=BG_CARD)
-        ts_row.pack(fill=tk.X, pady=(10, 2))
-
-        tk.Label(ts_row, text="Tailscale URL:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        # Tailscale URL
+        r4 = tk.Frame(card, bg=BG_CARD)
+        r4.pack(fill=tk.X, pady=4)
+        tk.Label(r4, text="Tailscale URL:", width=14, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         self.var_ts_url = tk.StringVar(value="")
-        entry_ts_url = ttk.Entry(ts_row, textvariable=self.var_ts_url, state="readonly")
-        entry_ts_url.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        ttk.Entry(r4, textvariable=self.var_ts_url, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        self.btn_copy_ts = ttk.Button(r4, text="Copy", command=self._copy_ts_url)
+        self.btn_copy_ts.pack(side=tk.LEFT)
 
-        self.btn_copy_ts = ttk.Button(ts_row, text="Copy", command=self._copy_ts_url)
-        self.btn_copy_ts.pack(side=tk.LEFT, padx=(0, 4))
+        # Buttons Row
+        b_row = tk.Frame(card, bg=BG_CARD)
+        b_row.pack(fill=tk.X, pady=(16, 0))
 
-        ts_status_row = tk.Frame(net_card, bg=BG_CARD)
-        ts_status_row.pack(fill=tk.X, pady=(4, 0))
-        self.lbl_ts_status = tk.Label(ts_status_row, text="Checking Tailscale...", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED)
-        self.lbl_ts_status.pack(side=tk.LEFT)
+        self.btn_toggle_share = ttk.Button(b_row, text="Pause Sharing", command=self._toggle_share)
+        self.btn_toggle_share.pack(side=tk.LEFT, padx=(0, 8))
 
-        # --- Card 3: Master Control Switch ---
-        ctrl_card = self._create_card(parent, padding=12, pady=(0, 0))
+        ttk.Button(b_row, text="Save Settings", style="Accent.TButton", command=self._apply_settings).pack(side=tk.LEFT)
 
-        self.btn_toggle_share = ttk.Button(ctrl_card, text="Pause Sharing", command=self._toggle_share)
-        self.btn_toggle_share.pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(b_row, text="Fix Windows 47MB Limit", command=self._apply_webclient_fix).pack(side=tk.RIGHT)
 
-        ttk.Button(ctrl_card, text="Apply Changes & Restart Services", style="Accent.TButton", command=self._apply_settings).pack(side=tk.LEFT)
-
-    def _build_guide_tab(self, parent: tk.Widget) -> None:
-        guide_card = self._create_card(parent, padding=16, pady=(0, 0), fill=tk.BOTH)
-
-        tk.Label(
-            guide_card,
-            text="LanDrop Distributed Virtual Drive Architecture",
-            font=("Segoe UI", 12, "bold"),
-            bg=BG_CARD,
-            fg=COLOR_TEXT_MAIN,
-        ).pack(anchor="w", pady=(0, 10))
-
-        cards_info = [
-            ("1. Unified Mount Letter (Z:)",
-             "Both computers mount their local WebDAV bridge to the same drive letter (Z:). Opening Z: on any connected PC presents the exact same seamless directory tree."),
-            ("2. Local Physical Pool & Distributed Catalog",
-             "When you drop a file into Z:, it is stored safely in your local storage directory. LanDrop computes a fast hash and announces the update to all connected peers over UDP and HTTP."),
-            ("3. Seekable Streaming via RemoteStreamReader",
-             "Peers can open large video clips, music, or high-res photos instantly. LanDrop intercepts byte requests and streams chunks via HTTP Range headers without pre-downloading."),
-            ("4. Multi-Network Mesh (LAN + Tailscale)",
-             "If you are on the same Wi-Fi, LanDrop communicates via fast local subnet broadcast. When away from home, Tailscale mesh automatically routes transfers securely across the internet."),
-        ]
-
-        for num_title, body in cards_info:
-            b_box = tk.Frame(guide_card, bg="#F8FAFC", padx=12, pady=10, highlightbackground=BORDER_CARD, highlightthickness=1)
-            b_box.pack(fill=tk.X, pady=(0, 8))
-            tk.Label(b_box, text=num_title, font=("Segoe UI", 9, "bold"), bg="#F8FAFC", fg=COLOR_PRIMARY).pack(anchor="w")
-            tk.Label(b_box, text=body, font=("Segoe UI", 8), bg="#F8FAFC", fg=COLOR_TEXT_MAIN, justify=tk.LEFT, wraplength=640).pack(anchor="w", pady=(2, 0))
-
-    # --- Actions & Handlers ---
+    # --- Actions ---
 
     def _open_virtual_drive(self) -> None:
         letter = self.var_drive_letter.get().rstrip(":") + ":"
@@ -675,22 +439,22 @@ class LanDropAppUI:
 
     def _update_mount_display(self, mounted: bool, letter: str) -> None:
         if mounted:
-            self.lbl_hero_drive.configure(text=f"LanDrop Drive ({letter})")
-            self.lbl_mount_status.configure(text=f"● Mounted at {letter}", fg=COLOR_SUCCESS_TEXT)
-            self.chip_drive.configure(text=f"{letter}\\ Mounted", bg="#E0F2FE", fg="#0369A1")
-            self.btn_open_drive.configure(text=f"📂  Open LanDrop ({letter})", state="normal")
-            self.btn_toggle_mount.configure(text="Remount")
+            self.lbl_drive_title.configure(text=f"LanDrop Drive ({letter})")
+            self.lbl_drive_state.configure(text="● Mounted & Synced in Windows File Explorer", fg=COLOR_GREEN_TEXT)
+            self.badge_drive.configure(text=f"{letter}\\ Ready", bg="#E0F2FE", fg="#0369A1")
+            self.btn_open_hero.configure(text=f"📂  Open LanDrop ({letter}) in File Explorer", state="normal")
+            self.btn_remount.configure(text="Remount")
         else:
-            self.lbl_hero_drive.configure(text=f"LanDrop Drive ({letter}) [Offline]")
-            self.lbl_mount_status.configure(text="○ Not Mounted", fg=COLOR_TEXT_MUTED)
-            self.chip_drive.configure(text=f"{letter}\\ Offline", bg="#F1F5F9", fg=COLOR_TEXT_MUTED)
-            self.btn_open_drive.configure(text="Mount Drive", state="normal")
-            self.btn_toggle_mount.configure(text="Mount Drive")
+            self.lbl_drive_title.configure(text=f"LanDrop Drive ({letter}) [Offline]")
+            self.lbl_drive_state.configure(text="○ Drive is not mounted", fg=COLOR_TEXT_MUTED)
+            self.badge_drive.configure(text=f"{letter}\\ Offline", bg="#F1F5F9", fg=COLOR_TEXT_MUTED)
+            self.btn_open_hero.configure(text="Mount Drive", state="normal")
+            self.btn_remount.configure(text="Mount")
 
     def _apply_webclient_fix(self) -> None:
         ok = optimize_webclient_registry()
         if ok:
-            messagebox.showinfo("Optimization Applied", "Windows WebClient registry settings successfully optimized for 4GB transfers and loopback access.")
+            messagebox.showinfo("Optimization Applied", "Windows WebClient registry settings successfully optimized for 4GB transfers.")
             self.set_status("Windows WebClient optimized.")
         else:
             messagebox.showinfo(
@@ -698,49 +462,13 @@ class LanDropAppUI:
                 "WebClient optimization attempted.\nIf copying files larger than 47MB is restricted by Windows, run LanDrop once as Administrator to persist the 4GB registry key."
             )
 
-    def _set_quota_preset(self, gb: int) -> None:
-        self.var_quota_gb.set(str(gb))
-        self._update_quota()
-
-    def _update_quota(self) -> None:
-        try:
-            gb = int(self.var_quota_gb.get().strip())
-            if gb <= 0:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror("Invalid Size", "Please enter a valid size in GB (e.g. 20).")
-            return
-
-        self.config["virtual_storage_gb"] = gb
-        save_config(self.config)
-        self.vfs_provider.set_quota(gb * 1024 * 1024 * 1024)
-        self.refresh_virtual_files()
-        self.set_status(f"Virtual storage quota set to {gb} GB.")
-
     def _open_physical_pool(self) -> None:
         path = self.vfs_provider.local_storage_dir
         if os.path.exists(path):
             open_path_or_url(path)
 
-    def _change_physical_pool(self) -> None:
-        new_dir = filedialog.askdirectory(
-            title="Select New Storage Pool Folder",
-            initialdir=self.vfs_provider.local_storage_dir,
-        )
-        if not new_dir:
-            return
-
-        new_abs = os.path.abspath(new_dir)
-        self.config["storage_pool_dir"] = new_abs
-        save_config(self.config)
-        self.vfs_provider.local_storage_dir = new_abs
-        self.lbl_pool_path.configure(text=new_abs)
-        self.refresh_virtual_files()
-        self.set_status(f"Storage pool relocated to: {new_abs}")
-
     def refresh_virtual_files(self) -> None:
-        """Reload and refresh virtual storage files and quota."""
-        # Scan local storage for any direct file additions
+        """Reload and refresh virtual storage capacity & status."""
         self.mapping_table.scan_local_storage(
             storage_dir=self.vfs_provider.local_storage_dir,
             node_id=self.vfs_provider.node_id,
@@ -748,31 +476,17 @@ class LanDropAppUI:
             my_url=self.vfs_provider.get_my_url(),
         )
 
-        # Update quota usage bar & labels
         total_quota = self.vfs_provider.quota_bytes
         total_used = self.mapping_table.get_total_used_bytes()
         pct = min(100.0, (total_used / total_quota) * 100.0) if total_quota > 0 else 0
 
-        if hasattr(self, "progress_quota"):
-            self.progress_quota["value"] = pct
-        if hasattr(self, "lbl_pct_badge"):
-            self.lbl_pct_badge.configure(text=f"{pct:.1f}% Used")
-        if hasattr(self, "lbl_quota_usage"):
-            free_bytes = max(0, total_quota - total_used)
-            self.lbl_quota_usage.configure(
-                text=f"Used: {format_bytes(total_used)}  •  Free: {format_bytes(free_bytes)}  •  Total Quota: {format_bytes(total_quota)}"
+        if hasattr(self, "progress_storage"):
+            self.progress_storage["value"] = pct
+        if hasattr(self, "lbl_storage_stats"):
+            self.lbl_storage_stats.configure(
+                text=f"{format_bytes(total_used)} used of {format_bytes(total_quota)} ({pct:.1f}%)"
             )
 
-        # Update local pool file counts
-        active_entries = self.mapping_table.get_all_active_entries()
-        local_count = sum(1 for e in active_entries if e.is_local)
-        remote_count = len(active_entries) - local_count
-        if hasattr(self, "lbl_pool_stats"):
-            self.lbl_pool_stats.configure(
-                text=f"{local_count} local item(s)  •  {remote_count} remote shared"
-            )
-
-        # Check mount status
         if hasattr(self, "var_drive_letter"):
             letter = self.var_drive_letter.get().rstrip(":") + ":"
             self._update_mount_display(is_drive_mounted(letter), letter)
@@ -783,53 +497,52 @@ class LanDropAppUI:
         peer = self._get_selected_peer()
         if not peer:
             return
-        self.set_status(f"Syncing mapping tables with {peer.device_name}...")
+        self.set_status(f"Syncing with {peer.device_name}...")
         success = self.sync_engine.sync_with_peer(peer.webdav_url)
         if success:
             self.refresh_virtual_files()
             self.set_status(f"Synchronized with {peer.device_name}!")
-            messagebox.showinfo("Synchronized", f"Successfully synchronized mapping tables with {peer.device_name}!")
+            messagebox.showinfo("Synchronized", f"Successfully synchronized with {peer.device_name}!")
         else:
             self.set_status(f"Failed to sync with {peer.device_name}")
-            messagebox.showerror("Sync Failed", f"Could not sync with {peer.device_name} at {peer.webdav_url}.")
+            messagebox.showerror("Sync Failed", f"Could not sync with {peer.device_name}.")
 
     def _copy_ts_url(self) -> None:
         url = self.var_ts_url.get()
         if url and url.startswith("http"):
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
-            self.set_status("Copied Tailscale WebDAV URL to clipboard!")
+            self.set_status("Copied Tailscale URL!")
 
     def _manual_connect_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Connect to Remote Peer")
-        dialog.geometry("420x210")
-        dialog.configure(bg=BG_WINDOW)
+        dialog.title("Connect to Peer")
+        dialog.geometry("380x170")
+        dialog.configure(bg=BG_APP)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        card = tk.Frame(dialog, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=16, pady=16)
-        card.pack(fill=tk.BOTH, expand=True, padx=14, pady=14)
+        card = tk.Frame(dialog, bg=BG_CARD, highlightbackground=BORDER_CARD, highlightthickness=1, padx=14, pady=14)
+        card.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
-        tk.Label(card, text="Connect to Remote Computer", font=("Segoe UI", 10, "bold"), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(anchor="w", pady=(0, 4))
-        tk.Label(card, text="Enter the LAN IP Address or Tailscale MagicDNS/IP of the peer:", font=("Segoe UI", 8), bg=BG_CARD, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 10))
+        tk.Label(card, text="Enter Remote IP or Tailscale Address:", font=("Segoe UI", 9, "bold"), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(anchor="w", pady=(0, 6))
 
         row = tk.Frame(card, bg=BG_CARD)
-        row.pack(fill=tk.X, pady=4)
-        tk.Label(row, text="Address / IP:", width=12, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        row.pack(fill=tk.X, pady=3)
+        tk.Label(row, text="IP / Address:", width=11, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         var_addr = tk.StringVar(value="")
         entry = ttk.Entry(row, textvariable=var_addr)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         entry.focus()
 
         row2 = tk.Frame(card, bg=BG_CARD)
-        row2.pack(fill=tk.X, pady=4)
-        tk.Label(row2, text="Port:", width=12, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
+        row2.pack(fill=tk.X, pady=3)
+        tk.Label(row2, text="Port:", width=11, font=("Segoe UI", 9), bg=BG_CARD, fg=COLOR_TEXT_MAIN).pack(side=tk.LEFT)
         var_port = tk.StringVar(value=str(self.server.port))
         ttk.Entry(row2, textvariable=var_port, width=8).pack(side=tk.LEFT)
 
         btn_row = tk.Frame(card, bg=BG_CARD)
-        btn_row.pack(fill=tk.X, pady=(14, 0))
+        btn_row.pack(fill=tk.X, pady=(10, 0))
 
         def _do_sync():
             addr = var_addr.get().strip()
@@ -841,21 +554,11 @@ class LanDropAppUI:
             self.refresh_virtual_files()
             dialog.destroy()
             if success:
-                messagebox.showinfo("Connected", f"Connected and synchronized with {url}")
+                messagebox.showinfo("Connected", f"Connected to {url}")
             else:
-                messagebox.showerror("Connection Error", f"Failed to reach {url}")
+                messagebox.showerror("Error", f"Failed to reach {url}")
 
-        def _do_open():
-            addr = var_addr.get().strip()
-            port = var_port.get().strip()
-            if not addr:
-                return
-            url = f"http://{addr}:{port}/"
-            open_path_or_url(url)
-            dialog.destroy()
-
-        ttk.Button(btn_row, text="Sync Now", style="Accent.TButton", command=_do_sync).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Open in Explorer", command=_do_open).pack(side=tk.LEFT)
+        ttk.Button(btn_row, text="Connect", style="Accent.TButton", command=_do_sync).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(btn_row, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT)
 
     def _get_selected_peer(self) -> Optional[PeerInfo]:
@@ -880,20 +583,21 @@ class LanDropAppUI:
         if peer:
             self.root.clipboard_clear()
             self.root.clipboard_append(peer.webdav_url)
-            self.set_status(f"Copied {peer.device_name} URL to clipboard!")
+            self.set_status(f"Copied {peer.device_name} URL!")
 
     def _rescan_peers(self) -> None:
         peers = self.discovery.get_peers()
         self.update_peer_list(peers)
-        self.set_status(f"Refreshed peer list. Found {len(peers)} peer(s).")
+        self.set_status(f"Found {len(peers)} peer(s).")
 
     def update_peer_list(self, peers: List[PeerInfo]) -> None:
-        """Called thread-safely via root.after when discovery sniffs new peers."""
+        """Called thread-safely via root.after when discovery sniffs peers."""
         self._discovered_peers = peers
 
-        # Update header chips
-        if hasattr(self, "chip_peers"):
-            self.chip_peers.configure(text=f"👥 {len(peers)} Peer{'s' if len(peers) != 1 else ''}")
+        if hasattr(self, "badge_peers"):
+            self.badge_peers.configure(text=f"👥 {len(peers)} Peer{'s' if len(peers) != 1 else ''}")
+        if hasattr(self, "lbl_peers_count"):
+            self.lbl_peers_count.configure(text=f"Connected Computers ({len(peers)} Online)")
 
         cur_selection = self.peer_tree.selection()
         cur_url = None
@@ -920,7 +624,7 @@ class LanDropAppUI:
         if url:
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
-            self.set_status("Copied WebDAV URL to clipboard!")
+            self.set_status("Copied WebDAV URL!")
 
     def _open_webdav_url(self) -> None:
         url = self.var_url.get()
@@ -947,7 +651,17 @@ class LanDropAppUI:
         try:
             port = int(self.var_port.get().strip())
         except ValueError:
-            messagebox.showerror("Invalid Port", "Port must be a valid number (e.g. 8080).")
+            messagebox.showerror("Invalid Port", "Port must be a number (e.g. 8080).")
+            return
+
+        try:
+            gb = int(self.var_quota_gb.get().strip())
+            if gb <= 0:
+                raise ValueError()
+            self.config["virtual_storage_gb"] = gb
+            self.vfs_provider.set_quota(gb * 1024 * 1024 * 1024)
+        except ValueError:
+            messagebox.showerror("Invalid Quota", "Quota must be a positive number in GB.")
             return
 
         read_only = self.var_readonly.get()
@@ -973,45 +687,34 @@ class LanDropAppUI:
         )
 
         self._update_status_display()
-        self.set_status(f"Settings applied. Sharing on port {port}.")
+        self.refresh_virtual_files()
+        self.set_status(f"Settings saved. Sharing active on port {port}.")
 
     def _update_status_display(self) -> None:
         ts_info = get_tailscale_info()
         if self.server.is_running:
             url = f"http://{get_local_ip()}:{self.server.port}/"
             self.var_url.set(url)
-            self.chip_status.configure(text="● Online & Mesh Active", bg=COLOR_SUCCESS_BG, fg=COLOR_SUCCESS_TEXT)
             self.btn_toggle_share.configure(text="Pause Sharing")
 
             if ts_info.get("available") and ts_info.get("ip"):
                 ts_url = f"http://{ts_info['ip']}:{self.server.port}/"
                 self.var_ts_url.set(ts_url)
-                dns_text = f" ({ts_info['magic_dns']})" if ts_info.get("magic_dns") else ""
-                self.lbl_ts_status.configure(
-                    text=f"● Tailscale: {ts_info['ip']}{dns_text}",
-                    fg=COLOR_SUCCESS_TEXT,
-                )
                 self.btn_copy_ts.configure(state="normal")
             else:
-                self.var_ts_url.set("Tailscale not active")
-                self.lbl_ts_status.configure(
-                    text=f"Tailscale: {ts_info.get('status', 'Not Detected')}",
-                    fg=COLOR_TEXT_MUTED,
-                )
+                self.var_ts_url.set("Tailscale not connected")
                 self.btn_copy_ts.configure(state="disabled")
 
             self.set_status(f"Virtual Drive active on {url}")
         else:
             self.var_url.set("")
             self.var_ts_url.set("")
-            self.chip_status.configure(text="○ Sharing Paused", bg="#F1F5F9", fg=COLOR_TEXT_MUTED)
             self.btn_toggle_share.configure(text="Resume Sharing")
-            self.lbl_ts_status.configure(text="Sharing paused", fg=COLOR_TEXT_MUTED)
             self.btn_copy_ts.configure(state="disabled")
             self.set_status("Sharing paused.")
 
     def set_status(self, text: str) -> None:
-        self.status_text.configure(text=text)
+        self.lbl_footer_status.configure(text=f"● {text}")
 
     def hide_window(self) -> None:
         """Minimize window to system tray."""
