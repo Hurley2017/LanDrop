@@ -48,6 +48,32 @@ def is_drive_mounted(drive_letter: str = "Z:") -> bool:
     return letter.rstrip(":") in get_used_drive_letters()
 
 
+def set_drive_label(drive_letter: str = "Z:", label: str = "LanDrop") -> None:
+    """Set the Windows File Explorer display name for the mapped drive letter."""
+    if sys.platform != "win32":
+        return
+
+    letter = drive_letter.rstrip(":").upper() + ":"
+    ps_cmd = (
+        f"$s = New-Object -ComObject Shell.Application; "
+        f"$d = $s.NameSpace('{letter}\\'); "
+        f"if ($d) {{ $d.Self.Name = '{label}' }}; "
+        f"Get-ChildItem 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2' -ErrorAction SilentlyContinue | "
+        f"Where-Object {{ $_.PSChildName -like '##127.0.0.1*' -or $_.PSChildName -like '##localhost*' }} | "
+        f"ForEach-Object {{ Set-ItemProperty $_.PSPath -Name '_LabelFromReg' -Value '{label}' -ErrorAction SilentlyContinue }}"
+    )
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+            capture_output=True,
+            timeout=6,
+            creationflags=flags,
+        )
+    except Exception as e:
+        logger.debug("Failed to set drive label: %s", e)
+
+
 def mount_drive(webdav_url: str, drive_letter: str = "Z:") -> Optional[str]:
     """
     Mount the local WebDAV virtual storage as a Windows drive letter.
@@ -60,12 +86,11 @@ def mount_drive(webdav_url: str, drive_letter: str = "Z:") -> Optional[str]:
 
     # If already mounted to something, check or unmount if needed
     if is_drive_mounted(target_letter):
-        # Check if already connected to our URL
         proc = subprocess.run(["net", "use"], capture_output=True, text=True, timeout=5)
         if target_letter in proc.stdout:
             logger.info("Drive %s is already mounted", target_letter)
+            set_drive_label(target_letter, "LanDrop")
             return target_letter
-        # If taken by another device, find alternative
         alt = get_available_drive_letter(target_letter)
         if not alt:
             logger.warning("No available drive letters to mount %s", webdav_url)
@@ -81,14 +106,15 @@ def mount_drive(webdav_url: str, drive_letter: str = "Z:") -> Optional[str]:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=12, creationflags=flags)
         if res.returncode == 0:
             logger.info("Successfully mounted %s to %s", url_cleaned, target_letter)
+            set_drive_label(target_letter, "LanDrop")
             return target_letter
         else:
             logger.warning("net use failed: %s (%s)", res.stdout.strip(), res.stderr.strip())
-            # Fallback: Try with trailing slash
             cmd_alt = ["net", "use", target_letter, url_cleaned + "/", "/persistent:no"]
             res2 = subprocess.run(cmd_alt, capture_output=True, text=True, timeout=10, creationflags=flags)
             if res2.returncode == 0:
                 logger.info("Successfully mounted %s to %s with trailing slash", url_cleaned, target_letter)
+                set_drive_label(target_letter, "LanDrop")
                 return target_letter
     except Exception as e:
         logger.error("Error executing net use mount: %s", e)

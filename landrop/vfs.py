@@ -3,24 +3,27 @@
 import os
 import io
 import time
+import shutil
 import urllib.request
 import mimetypes
 import logging
 from typing import Optional, List, Callable
-from wsgidav.dav_provider import DAVProvider, DAVNonCollection, _DAVResource
-from wsgidav.fs_dav_provider import FileResource, FolderResource
+from wsgidav.dav_provider import DAVNonCollection, _DAVResource, DAVError, HTTP_FORBIDDEN
+from wsgidav.fs_dav_provider import FilesystemProvider, FileResource, FolderResource
+from wsgidav import util
 from .mapping import MappingTable, MappingEntry
 
 logger = logging.getLogger("landrop.vfs")
 
 
 class RemoteVirtualFileResource(DAVNonCollection):
-    """Represents a virtual file that is physically stored on a remote peer."""
+    """Represents a virtual file physically held on a remote peer, with overwrite support."""
 
     def __init__(self, path: str, environ: dict, entry: MappingEntry, provider: "VirtualStorageProvider"):
         super().__init__(path, environ)
         self.entry = entry
         self.provider = provider
+        self._target_file_path = self.provider._loc_to_file_path(self.path, self.environ)
 
     def get_content_length(self) -> int:
         return self.entry.size
@@ -56,6 +59,23 @@ class RemoteVirtualFileResource(DAVNonCollection):
             logger.error("Failed to stream remote file %s: %s", raw_url, e)
             return io.BytesIO(b"")
 
+    def begin_write(self, *, content_type=None):
+        """Allow local client to replace remote file with a new local copy."""
+        os.makedirs(os.path.dirname(self._target_file_path), exist_ok=True)
+        return open(self._target_file_path, "wb")
+
+    def end_write(self, *, with_errors: bool = False, **kwargs):
+        if not with_errors and os.path.exists(self._target_file_path):
+            entry = self.provider.mapping_table.register_local_file(
+                rel_path=self.path,
+                physical_path=self._target_file_path,
+                node_id=self.provider.node_id,
+                device_name=self.provider.device_name,
+                my_url=self.provider.get_my_url(),
+            )
+            if self.provider.on_file_changed:
+                self.provider.on_file_changed([entry])
+
     def delete(self):
         """Mark deleted in mapping table and propagate across peers."""
         self.provider.mapping_table.mark_deleted(self.path, self.provider.node_id)
@@ -70,9 +90,60 @@ class LocalVirtualFileResource(FileResource):
         super().__init__(path, environ, file_path)
         self.provider = provider
 
-    def end_write(self, is_modified: bool):
-        super().end_write(is_modified)
-        if is_modified and os.path.exists(self._file_path):
+    def handle_move(self, dest_path: str) -> bool:
+        """Handle MOVE request atomically using os.replace to prevent 'already exists' errors."""
+        fp_dest = self.provider._loc_to_file_path(dest_path, self.environ)
+        try:
+            os.makedirs(os.path.dirname(fp_dest), exist_ok=True)
+            # os.replace is atomic and automatically overwrites any existing file on Windows
+            os.replace(self._file_path, fp_dest)
+            self._file_path = fp_dest
+
+            self.provider.mapping_table.mark_deleted(self.path, self.provider.node_id)
+            entry = self.provider.mapping_table.register_local_file(
+                rel_path=dest_path,
+                physical_path=fp_dest,
+                node_id=self.provider.node_id,
+                device_name=self.provider.device_name,
+                my_url=self.provider.get_my_url(),
+            )
+            if self.provider.on_file_changed:
+                self.provider.on_file_changed([entry])
+            return True
+        except Exception as e:
+            logger.debug("Native handle_move fallback to copy_move: %s", e)
+            return False
+
+    def copy_move_single(self, dest_path: str, *, is_move: bool):
+        super().copy_move_single(dest_path, is_move=is_move)
+        fp_dest = self.provider._loc_to_file_path(dest_path, self.environ)
+        if is_move and os.path.exists(self._file_path):
+            try:
+                os.remove(self._file_path)
+            except Exception:
+                pass
+            self.provider.mapping_table.mark_deleted(self.path, self.provider.node_id)
+
+        if os.path.exists(fp_dest):
+            entry = self.provider.mapping_table.register_local_file(
+                rel_path=dest_path,
+                physical_path=fp_dest,
+                node_id=self.provider.node_id,
+                device_name=self.provider.device_name,
+                my_url=self.provider.get_my_url(),
+            )
+            if self.provider.on_file_changed:
+                self.provider.on_file_changed([entry])
+
+    def begin_write(self, *, content_type=None):
+        if self.provider.readonly:
+            raise DAVError(HTTP_FORBIDDEN)
+        os.makedirs(os.path.dirname(self._file_path), exist_ok=True)
+        return open(self._file_path, "wb")
+
+    def end_write(self, *, with_errors: bool = False, **kwargs):
+        super().end_write(with_errors=with_errors)
+        if not with_errors and os.path.exists(self._file_path):
             entry = self.provider.mapping_table.register_local_file(
                 rel_path=self.path,
                 physical_path=self._file_path,
@@ -87,9 +158,18 @@ class LocalVirtualFileResource(FileResource):
         super().delete()
         self.provider.mapping_table.mark_deleted(self.path, self.provider.node_id)
         if self.provider.on_file_changed:
-            entry = self.provider.mapping_table.get_entry(self.path)
-            if entry:
-                self.provider.on_file_changed([entry])
+            tombstone = MappingEntry(
+                path=self.path,
+                size=0,
+                mtime=time.time(),
+                file_hash="",
+                holder_node_id=self.provider.node_id,
+                holder_name=self.provider.device_name,
+                holder_url=self.provider.get_my_url(),
+                is_local=True,
+                deleted=True,
+            )
+            self.provider.on_file_changed([tombstone])
 
 
 class VirtualFolderResource(FolderResource):
@@ -128,22 +208,22 @@ class VirtualFolderResource(FolderResource):
         if self.provider.get_available_bytes() <= 0:
             raise Exception("Virtual storage quota exceeded")
 
-        os.makedirs(self._file_path, exist_ok=True)
-        file_path = os.path.join(self._file_path, name)
-        with open(file_path, "wb"):
+        path = util.join_uri(self.path, name)
+        fp = self.provider._loc_to_file_path(path, self.environ)
+        os.makedirs(os.path.dirname(fp), exist_ok=True)
+        with open(fp, "wb"):
             pass
 
-        res_path = os.path.join(self.path, name).replace("\\", "/")
-        return LocalVirtualFileResource(res_path, self.environ, file_path, self.provider)
+        return self.provider.get_resource_inst(path, self.environ)
 
     def create_collection(self, name: str) -> _DAVResource:
-        new_dir = os.path.join(self._file_path, name)
-        os.makedirs(new_dir, exist_ok=True)
-        res_path = os.path.join(self.path, name).replace("\\", "/") + "/"
-        return VirtualFolderResource(res_path, self.environ, new_dir, self.provider)
+        path = util.join_uri(self.path, name)
+        fp = self.provider._loc_to_file_path(path, self.environ)
+        os.makedirs(fp, exist_ok=True)
+        return self.provider.get_resource_inst(path, self.environ)
 
 
-class VirtualStorageProvider(DAVProvider):
+class VirtualStorageProvider(FilesystemProvider):
     """
     WSGI-DAV Provider implementing the distributed virtual storage.
     Presents a unified directory tree combining local physical files and remote peer files.
@@ -159,7 +239,7 @@ class VirtualStorageProvider(DAVProvider):
         get_my_url_func: Callable[[], str],
         on_file_changed: Optional[Callable[[List[MappingEntry]], None]] = None,
     ):
-        super().__init__()
+        super().__init__(local_storage_dir, readonly=False)
         self.local_storage_dir = os.path.abspath(local_storage_dir)
         os.makedirs(self.local_storage_dir, exist_ok=True)
         self.mapping_table = mapping_table
@@ -178,16 +258,17 @@ class VirtualStorageProvider(DAVProvider):
     def get_available_bytes(self) -> int:
         return max(0, self.quota_bytes - self.get_used_bytes())
 
-    def _loc_to_file_path(self, path: str) -> str:
-        rel = path.lstrip("/")
-        return os.path.normpath(os.path.join(self.local_storage_dir, rel))
+    def _loc_to_file_path(self, path: str, environ: dict = None) -> str:
+        """Convert resource path to unicode absolute file path in local storage."""
+        rel = path.strip("/").replace("/", os.sep)
+        return os.path.abspath(os.path.join(self.local_storage_dir, rel))
 
     def get_resource_inst(self, path: str, environ: dict) -> Optional[_DAVResource]:
         norm_path = "/" + path.replace("\\", "/").strip("/")
         if path == "/":
             norm_path = "/"
 
-        phys_path = self._loc_to_file_path(norm_path)
+        phys_path = self._loc_to_file_path(norm_path, environ)
 
         # 1. Root folder
         if norm_path == "/":
